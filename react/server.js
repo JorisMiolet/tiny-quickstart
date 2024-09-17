@@ -10,7 +10,7 @@ const { Configuration, PlaidApi, PlaidEnvironments } = require("plaid");
 const app = express();
 
 app.use(
-  // FOR DEMO PURPOSES ONLY
+  
   // Use an actual secret key in production
   session({ secret: "bosco", saveUninitialized: true, resave: true })
 );
@@ -61,10 +61,75 @@ app.post("/api/exchange_public_token", async (req, res, next) => {
 // Fetches balance data using the Node client library for Plaid
 app.get("/api/balance", async (req, res, next) => {
   const access_token = req.session.access_token;
+  console.log(access_token)
   const balanceResponse = await client.accountsBalanceGet({ access_token });
   res.json({
     Balance: balanceResponse.data,
   });
 });
+
+app.get("/api/getAccesToken", async (request, response, next) => {
+  Promise.resolve().then(async () => {
+      const accesToken = request.session.access_token
+      if(!accesToken)return;
+    
+      response.json({access_token: accesToken })
+    })
+  })
+  
+
+app.post("/api/transactions", async (request, response, next) => {
+  Promise.resolve().then(async () => {
+    const access_token = request.session.access_token
+
+    let cursor = null
+  
+    let added = [];
+    let modified = [];
+    let removed = [];
+    let hasMore = true;
+
+    let { count } = request.body;
+    if(count < 1){
+      return new Error('Count must be between 1 and 500')
+    }
+
+    while (hasMore) {
+      const request = {
+        access_token: access_token,
+        cursor: cursor,
+        count: parseInt(count),
+        options: {
+          days_requested: 30
+        }
+      };
+      const response = await client.transactionsSync(request)
+      const data = response.data;
+
+      cursor = data.next_cursor;
+      if (cursor === "") {
+        continue;
+      }
+
+      added = added.concat(data.added);
+      modified = modified.concat(data.modified);
+      removed = removed.concat(data.removed);
+      hasMore = data.has_more;
+    }
+    if(count > added.length){
+      count = added.length ;
+    }
+
+    const compareTxnsByDateAscending = (a, b) => (a.date > b.date) - (a.date < b.date);
+
+        const recently_added = [...added].sort(compareTxnsByDateAscending).slice(-count);
+        response.json({
+          added: recently_added,
+          modified: modified,
+          removed: removed,
+        });
+  })
+  
+})
 
 app.listen(process.env.PORT || 8080);
